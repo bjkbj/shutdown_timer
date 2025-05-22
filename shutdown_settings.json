@@ -1,0 +1,15 @@
+{
+    "shutdown_time": [
+        17,
+        12
+    ],
+    "selected_days": [
+        0,
+        1,
+        2,
+        3,
+        4
+    ],
+    "language": "en",
+    "shutdown_icon_visible": false
+}

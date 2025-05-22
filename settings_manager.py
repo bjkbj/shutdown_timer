@@ -1,6 +1,10 @@
 import wx
 import wx.adv
 
+from setting_data import shutdown_settings
+
+import json  # 添加json模块导入
+
 class SettingsDialog(wx.Dialog):
     def __init__(self, parent):
         # 获取当前语言设置
@@ -12,14 +16,12 @@ class SettingsDialog(wx.Dialog):
             weekday_label_text = "选择重复日期："
             weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
             ok_text = "确定"
-            cancel_text = "取消"
         else:
             title = "Shutdown Settings"
             time_label_text = "Select shutdown time:"
             weekday_label_text = "Select repeat days:"
             weekdays = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
             ok_text = "OK"
-            cancel_text = "Cancel"
         
         super().__init__(parent, title=title, size=(500, 300))
         self.parent = parent
@@ -70,54 +72,102 @@ class SettingsDialog(wx.Dialog):
         # 添加按钮（靠左对齐）
         button_sizer = wx.BoxSizer(wx.HORIZONTAL)
         ok_button = wx.Button(panel, wx.ID_OK, ok_text)
-        cancel_button = wx.Button(panel, wx.ID_CANCEL, cancel_text)
         button_sizer.Add(ok_button, 0, wx.ALL, 5)
-        button_sizer.Add(cancel_button, 0, wx.ALL, 5)
         main_sizer.Add(button_sizer, 0, wx.ALL|wx.LEFT, 10)  # 靠左对齐
         
         panel.SetSizer(main_sizer)
         
         # 绑定事件
         self.Bind(wx.EVT_BUTTON, self.on_ok, ok_button)
-        self.Bind(wx.EVT_BUTTON, self.on_cancel, cancel_button)
     
     def on_ok(self, event):
         """确定按钮事件处理"""
-        selected_hour = self.hour_choice.GetSelection()
-        selected_minute = self.minute_choice.GetSelection()
-        
-        # 获取选中的星期
-        selected_days = []
-        for i, cb in enumerate(self.weekday_boxes):
-            if cb.GetValue():
-                selected_days.append(i)
-        
-        # 保存设置到settings_manager
-        settings_manager = self.parent.settings_manager
-        settings_manager.selected_hour = selected_hour
-        settings_manager.selected_minute = selected_minute
-        settings_manager.selected_days = selected_days
-        
-        self.EndModal(wx.ID_OK)
+        try:
+            # 获取选择的时间和星期
+            hour_str = self.hour_choice.GetStringSelection()
+            minute_str = self.minute_choice.GetStringSelection()
+            
+            # 获取选中的星期
+            selected_days = []
+            for i, cb in enumerate(self.weekday_boxes):
+                if cb.GetValue():
+                    selected_days.append(i)
+            
+            # 如果没有选择时间或星期，直接保存空设置
+            if not hour_str or not minute_str:
+                self.save_settings_to_file(-1, -1, [])
+                self.EndModal(wx.ID_OK)
+                return
+            
+            # 安全转换时间
+            try:
+                hour = int(hour_str)
+                minute = int(minute_str)
+            except (ValueError, TypeError):
+                # 如果转换失败，保存空设置
+                self.save_settings_to_file(-1, -1, [])
+                self.EndModal(wx.ID_OK)
+                return
+            
+            # 保存设置到文件
+            self.save_settings_to_file(hour, minute, selected_days)
+            self.EndModal(wx.ID_OK)
+            
+        except:
+            # 静默处理所有错误，保存空设置并关闭
+            self.save_settings_to_file(-1, -1, [])
+            self.EndModal(wx.ID_OK)
     
-    def on_cancel(self, event):
-        """取消按钮事件处理"""
-        # 清除设置管理器中的数据
-        settings_manager = self.parent.settings_manager
-        settings_manager.selected_hour = 0
-        settings_manager.selected_minute = 0
-        settings_manager.selected_days = []
+    def save_settings_to_file(self, hour, minute, days):
+        """保存设置到文件"""
+        import json
+        from setting_data import shutdown_settings
         
-        # 清除显示
-        if settings_manager.shutdown_time_display:
-            settings_manager.shutdown_time_display.SetLabel("")
-        if settings_manager.weekday_display:
-            settings_manager.weekday_display.SetLabel("")
-        if settings_manager.shutdown_status:
-            settings_manager.shutdown_status.Hide()
+        # 检查时间和星期是否都有选择
+        if hour == -1 or minute == -1 or not days:
+            data = {
+                'shutdown_time': [-1, -1],  # 改为保存-1而不是空数组
+                'selected_days': [],
+                'language': shutdown_settings.language,
+                'shutdown_icon_visible': shutdown_settings.shutdown_icon_visible
+            }
+        else:
+            data = {
+                'shutdown_time': [hour, minute],
+                'selected_days': days,
+                'language': shutdown_settings.language,
+                'shutdown_icon_visible': shutdown_settings.shutdown_icon_visible
+            }
         
-        # 关闭对话框
-        self.EndModal(wx.ID_CANCEL)
+        # 保存到文件
+        with open(shutdown_settings.config_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+    
+    def update_main_window_display(self, hour, minute, days):
+        """更新主窗口显示"""
+        # 如果时间和星期都为空，清除显示
+        if hour == -1 or minute == -1 or not days:
+            self.parent.shutdown_time_display.SetLabel("")
+            self.parent.weekday_display.SetLabel("")
+            self.parent.shutdown_status.Hide()
+            return
+        
+        # 更新显示
+        is_chinese = self.parent.lang_toggle.GetValue()
+        if is_chinese:
+            shutdown_text = f"关机时间设置为: {hour:02d}:{minute:02d}"
+            weekdays = ['一', '二', '三', '四', '五', '六', '日']
+            selected_weekdays = [f"周{weekdays[i]}" for i in days]
+            weekday_text = f"选中的星期: {', '.join(selected_weekdays)}"
+        else:
+            shutdown_text = f"Shutdown time set to: {hour:02d}:{minute:02d}"
+            weekdays = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
+            selected_weekdays = [weekdays[i] for i in days]
+            weekday_text = f"Repeat on: {', '.join(selected_weekdays)}"
+        
+        self.parent.shutdown_time_display.SetLabel(shutdown_text)
+        self.parent.weekday_display.SetLabel(weekday_text)
+        self.parent.shutdown_status.Show()
     
     def SetTitle(self, title):
         """重写标题设置方法以支持语言切换"""
@@ -129,17 +179,16 @@ class SettingsDialog(wx.Dialog):
             for i, cb in enumerate(['周一', '周二', '周三', '周四', '周五', '周六', '周日']):
                 self.weekday_boxes[i].SetLabel(cb)
             self.FindWindow(wx.ID_OK).SetLabel("确定")
-            self.FindWindow(wx.ID_CANCEL).SetLabel("取消")
         else:
             # 更新英文界面文本
             for i, cb in enumerate(['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']):
                 self.weekday_boxes[i].SetLabel(cb)
             self.FindWindow(wx.ID_OK).SetLabel("OK")
-            self.FindWindow(wx.ID_CANCEL).SetLabel("Cancel")
 
 class SettingsManager:
-    def __init__(self, parent, colors):
-        self.parent = parent
+    def __init__(self, main_frame, colors):
+        # 修复参数传递问题
+        self.parent = main_frame  # 将 main_frame 赋值给 parent
         self.colors = colors
         self.shutdown_status = None
         self.shutdown_time_display = None
@@ -205,4 +254,26 @@ class SettingsManager:
     def get_current_dialog(self):
         """获取当前打开的设置对话框"""
         return self.current_dialog
+
+    def save_settings(self):
+        """保存设置"""
+        from setting_data import shutdown_settings
+        
+        if self.selected_hour is not None and self.selected_minute is not None:
+            shutdown_settings.save_settings(
+                self.selected_hour,
+                self.selected_minute,
+                self.selected_days
+            )
+        else:
+            shutdown_settings.clear_settings()
+
+    def set_language(self, lang):
+        """设置语言
+        
+        Args:
+            lang: 语言代码，'cn' 为中文，'en' 为英文
+        """
+        from setting_data import shutdown_settings
+        shutdown_settings.set_language(lang)
 
